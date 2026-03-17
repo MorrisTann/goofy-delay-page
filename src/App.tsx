@@ -12,7 +12,7 @@ import { AdminPanel, type FlowStepForAdmin } from "./components/AdminPanel";
 import type { AdminConfig } from "./lib/adminConfig";
 import "./App.css";
 
-const options = [5, 10, 30, 60];
+const options = [3, 5, 10, 20];
 
 type FlowStep =
   | "idle"
@@ -60,14 +60,16 @@ function App() {
   const [step, setStep] = useState<FlowStep>("idle");
   const [showCrashMessage, setShowCrashMessage] = useState(false);
   const [balance, setBalance] = useState(0);
+  const [loadingPhase, setLoadingPhase] = useState<"countdown" | "negative" | "soon" | "okok">("countdown");
 
   const frameIdRef = useRef<number | null>(null);
   const lastSectorRef = useRef<number>(0);
-
+  const wheelElRef = useRef<HTMLDivElement | null>(null);
 
   function handleSpin() {
     resumeAudioContext();
     if (
+      showCrashMessage ||
       isSpinning ||
       step === "celebration" ||
       step === "loading" ||
@@ -117,13 +119,17 @@ function App() {
         playTickSound();
       }
 
-      setRotation(current);
+      if (wheelElRef.current) {
+        wheelElRef.current.style.transform = `rotate(${current}deg) translateZ(0)`;
+      } else {
+        setRotation(current);
+      }
 
       if (t < 1) {
         frameIdRef.current = requestAnimationFrame(animate);
       } else {
+        setRotation(finalAngle);
         setIsSpinning(false);
-        // Pointer is at the top; wheel rotation R means angle -R is under the pointer
         const wheelAngleUnderPointer = ((-finalAngle % 360) + 360) % 360;
         const sectorIndex =
           wheelAngleUnderPointer <= 45 || wheelAngleUnderPointer > 315
@@ -138,6 +144,7 @@ function App() {
         setStep("celebration");
         setTimeout(() => {
           setStep("loading");
+          setLoadingPhase("countdown");
           setRemainingSeconds(landedSeconds);
         }, 2500);
       }
@@ -169,30 +176,55 @@ function App() {
     return () => clearTimeout(t);
   }, [adminConfig.showIntro]);
 
-  // countdown logic
+  // countdown logic (+ joke: go negative, then Soon, then okok)
   useEffect(() => {
     if (step !== "loading") return;
     if (remainingSeconds === null) return;
+    if (loadingPhase === "soon" || loadingPhase === "okok") return;
+
     const timer = setTimeout(() => {
-      setRemainingSeconds((prev) => {
-        if (prev === null) return null;
-
-        if (prev <= 1) {
-          setStep(getNextStep("loading", adminConfig));
-          return 0;
+      if (loadingPhase === "countdown") {
+        if (remainingSeconds <= 0) {
+          setLoadingPhase("negative");
+          setRemainingSeconds(-1);
+        } else {
+          setRemainingSeconds((s) => (s === null ? null : s - 1));
         }
-
-        return prev - 1;
-      });
+        return;
+      }
+      if (loadingPhase === "negative") {
+        if (remainingSeconds <= -5) {
+          setLoadingPhase("soon");
+        } else {
+          setRemainingSeconds((s) => (s === null ? null : s - 1));
+        }
+      }
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [remainingSeconds, step, adminConfig]);
+  }, [remainingSeconds, step, loadingPhase, adminConfig]);
+
+  // Soon → okok → proceed
+  useEffect(() => {
+    if (step !== "loading" || loadingPhase !== "soon") return;
+    const t = setTimeout(() => setLoadingPhase("okok"), 2000);
+    return () => clearTimeout(t);
+  }, [step, loadingPhase]);
+
+  useEffect(() => {
+    if (step !== "loading" || loadingPhase !== "okok") return;
+    const t = setTimeout(() => {
+      setStep(getNextStep("loading", adminConfig));
+      setLoadingPhase("countdown");
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [step, loadingPhase, adminConfig]);
 
   const showAdmin = isAdminMode();
   const goToStep = (s: FlowStepForAdmin) => {
     setStep(s);
     if (s === "loading") {
+      setLoadingPhase("countdown");
       setSelectedSeconds(3);
       setRemainingSeconds(3);
     }
@@ -237,20 +269,40 @@ function App() {
     );
   }
 
-  // blank loading page with countdown
+  // blank loading page with countdown (+ joke: minus, Soon, okok)
   if (step === "loading") {
+    const countdownText =
+      loadingPhase === "soon"
+        ? "Soon"
+        : loadingPhase === "okok"
+          ? "okok"
+          : `Jäänud: ${remainingSeconds}s`;
+
+    const laebLine =
+      loadingPhase === "okok"
+        ? null
+        : loadingPhase === "soon"
+          ? "Leht laeb: Soon"
+          : loadingPhase === "negative" && remainingSeconds !== null && selectedSeconds != null
+            ? `Leht laeb: ${selectedSeconds - remainingSeconds} sekundit.`
+            : selectedSeconds != null
+              ? `Leht laeb: ${selectedSeconds} sekundit.`
+              : null;
+
     return (
       <>
         {adminPanel}
         <div className="app">
           <h1>Leht laeb. Ole kannatlik!</h1>
-          {selectedSeconds && <p>Kokku laeb: {selectedSeconds} sekundit.</p>}
+          {laebLine != null && <p className="loading-seconds-line">{laebLine}</p>}
           <div className="loading-dots" aria-label="Laeb">
             <span className="loading-dot" />
             <span className="loading-dot" />
             <span className="loading-dot" />
           </div>
-          <p className="countdown">Jäänud: {remainingSeconds}s</p>
+          <p className={`countdown ${loadingPhase === "soon" ? "countdown-soon" : loadingPhase === "okok" ? "countdown-okok" : ""}`}>
+            {countdownText}
+          </p>
         </div>
       </>
     );
@@ -321,23 +373,25 @@ function App() {
   return (
     <>
       {adminPanel}
+      <div className="app">
+        <h1>Lehe laadimisaja õnneratas!</h1>
+        <Wheel
+          wheelRef={wheelElRef}
+          rotation={rotation}
+          isSpinning={isSpinning}
+          isLoadingTime={false}
+          onSpin={handleSpin}
+          options={options}
+          spinDisabled={showCrashMessage}
+        />
+        <p>Võimalikud ajad: 3, 5, 10, 20 sekundit</p>
+      </div>
       {showCrashMessage && (
         <div className="crash-message-overlay" role="alert">
           <p className="crash-message-title">Liiga palju küpsiseid</p>
           <p className="crash-message-sub">Tagasi ratta juurde…</p>
         </div>
       )}
-      <div className="app">
-        <h1>Lehe laadimisaja õnneratas!</h1>
-        <Wheel
-          rotation={rotation}
-          isSpinning={isSpinning}
-          isLoadingTime={false}
-          onSpin={handleSpin}
-          options={options}
-        />
-        <p>Võimalikud ajad: 5, 10, 30, 60 sekundit</p>
-      </div>
     </>
   );
 }

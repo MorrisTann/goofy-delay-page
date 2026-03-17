@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import laughSound from "../assets/crowd of laughter sound effect.mp3";
+import peopleLaughing from "../assets/people_laughing_at_you.webp";
+import rottPhoto from "../assets/lis_uks_foto.jpg";
 import { playCardDealSound, resumeAudioContext } from "../lib/audioUtils";
 
 type BlackjackGameProps = {
@@ -51,10 +53,20 @@ const ranks: Rank[] = [
 
 const DEAL_STAGGER_MS = 180;
 
-function playLaughSound(onEnded?: () => void) {
+const LAUGH_ZOOM_FALLBACK_S = 2.8;
+
+function playLaughSound(
+  onEnded?: () => void,
+  onDuration?: (seconds: number) => void,
+) {
   try {
     const audio = new Audio(laughSound);
     audio.volume = 0.6;
+    audio.onloadedmetadata = () => {
+      if (typeof audio.duration === "number" && isFinite(audio.duration)) {
+        onDuration?.(audio.duration);
+      }
+    };
     if (onEnded) audio.onended = onEnded;
     audio.play().catch(() => onEnded?.());
   } catch {
@@ -118,8 +130,19 @@ function suitColor(suit: Suit): "red" | "black" {
 
 const STARTING_BALANCE = 0;
 
+const ROTT_TEXTS = [
+  "wow",
+  "ma ootasin sinust rohkemat",
+  "mõttetu vend",
+  "see on see kuidas sa kõlad",
+] as const;
+
 export function BlackjackGame({ onWin, onSkipToCaptcha }: BlackjackGameProps) {
   const [phase, setPhase] = useState<"bet" | "play" | "rott">("bet");
+  const [rottStep, setRottStep] = useState(0);
+  const [laughZoomDuration, setLaughZoomDuration] = useState<number | null>(
+    null,
+  );
   const [balance, setBalance] = useState(STARTING_BALANCE);
   const [bet, setBet] = useState<number | null>(null);
   const [deck, setDeck] = useState<Card[]>(() => shuffle(makeDeck()));
@@ -132,6 +155,19 @@ export function BlackjackGame({ onWin, onSkipToCaptcha }: BlackjackGameProps) {
   const dealerCards = useMemo(() => dealer.map((dc) => dc.card), [dealer]);
   const playerValue = useMemo(() => bestHandValue(playerCards), [playerCards]);
   const dealerValue = useMemo(() => bestHandValue(dealerCards), [dealerCards]);
+
+  useEffect(() => {
+    if (phase !== "rott" || rottStep > 5) return;
+    const t = setTimeout(() => setRottStep((s) => s + 1), 2000);
+    return () => clearTimeout(t);
+  }, [phase, rottStep]);
+
+  useEffect(() => {
+    if (phase !== "rott" || rottStep !== 6) return;
+    playLaughSound(onSkipToCaptcha, (duration) =>
+      setLaughZoomDuration(duration),
+    );
+  }, [phase, rottStep, onSkipToCaptcha]);
 
   const draw = useCallback(
     (n: number): Card[] => {
@@ -257,9 +293,35 @@ export function BlackjackGame({ onWin, onSkipToCaptcha }: BlackjackGameProps) {
             : "Võida blackjack, et jätkata.";
 
   if (phase === "rott") {
+    if (rottStep === 6) {
+      const zoomSec = laughZoomDuration ?? LAUGH_ZOOM_FALLBACK_S;
+      return (
+        <div className="app bj-rott-phase bj-rott-laugh">
+          <img
+            src={peopleLaughing}
+            alt=""
+            className="bj-rott-laugh-img"
+            aria-hidden
+            style={{ animationDuration: `${zoomSec}s` }}
+          />
+        </div>
+      );
+    }
+    const showEpstein = rottStep === 4;
+    const captionUnder = rottStep === 4 ? `„mulle meeldivad alaealised"` : null;
+    const onlyLaughText = rottStep === 5 ? "kõik naeravad su üle" : null;
     return (
-      <div className="app">
-        <h1 className="bj-rott-title">Rott</h1>
+      <div className="app bj-rott-phase">
+        {showEpstein && (
+          <div className="bj-rott-photo-wrap">
+            <img src={rottPhoto} alt="" className="bj-rott-photo" aria-hidden />
+          </div>
+        )}
+        {captionUnder && <p className="bj-rott-caption">{captionUnder}</p>}
+        {onlyLaughText && <p className="bj-rott-title">{onlyLaughText}</p>}
+        {rottStep < 4 && (
+          <p className="bj-rott-title">{ROTT_TEXTS[rottStep]}</p>
+        )}
       </div>
     );
   }
@@ -269,12 +331,12 @@ export function BlackjackGame({ onWin, onSkipToCaptcha }: BlackjackGameProps) {
       <div className="app">
         <h1>Kinnita, et sa ei ole robot</h1>
         <p
-        className={`bj-balance bj-balance-${
-          balance > 0 ? "positive" : balance < 0 ? "negative" : "zero"
-        }`}
-      >
-        Saldo: {balance} €
-      </p>
+          className={`bj-balance bj-balance-${
+            balance > 0 ? "positive" : balance < 0 ? "negative" : "zero"
+          }`}
+        >
+          Saldo: {balance} €
+        </p>
         <p className="muted">Tee panus ja võida blackjack, et jätkata.</p>
         <div className="bj-bet-options">
           {BET_OPTIONS.map((amount) => (
@@ -293,7 +355,7 @@ export function BlackjackGame({ onWin, onSkipToCaptcha }: BlackjackGameProps) {
           className="bj-skip-btn"
           onClick={() => {
             setPhase("rott");
-            setTimeout(() => playLaughSound(onSkipToCaptcha), 400);
+            setRottStep(0);
           }}
         >
           Mulle ei meeldi raha peale mängida
@@ -369,9 +431,7 @@ export function BlackjackGame({ onWin, onSkipToCaptcha }: BlackjackGameProps) {
         </div>
       </div>
 
-      {bet !== null && (
-        <p className="bj-bet-display">Panus: {bet} €</p>
-      )}
+      {bet !== null && <p className="bj-bet-display">Panus: {bet} €</p>}
       <div className="bj-actions">
         <button
           type="button"

@@ -4,6 +4,8 @@ type WheelProps = {
   isLoadingTime: boolean;
   onSpin: () => void;
   options?: number[];
+  wheelRef?: React.RefObject<HTMLDivElement | null>;
+  spinDisabled?: boolean;
 };
 
 export function Wheel({
@@ -11,7 +13,9 @@ export function Wheel({
   isSpinning,
   isLoadingTime,
   onSpin,
-  options = [5, 10, 30, 60],
+  options = [3, 5, 10, 20],
+  wheelRef,
+  spinDisabled = false,
 }: WheelProps) {
   const [top, right, bottom, left] = options;
   return (
@@ -19,8 +23,12 @@ export function Wheel({
       {/* fixed pointer at the top, points down */}
       <div className="pointer" />
 
-      {/* spinning wheel */}
-      <div className="wheel" style={{ transform: `rotate(${rotation}deg) translateZ(0)` }}>
+      {/* spinning wheel – ref allows parent to update transform without re-render (Safari fix) */}
+      <div
+        ref={wheelRef}
+        className="wheel"
+        style={{ transform: `rotate(${rotation}deg) translateZ(0)` }}
+      >
         {/* sector labels – rotate together with the wheel */}
         <div className="wheel-label wheel-label-top">{top}s</div>
         <div className="wheel-label wheel-label-right">{right}s</div>
@@ -32,7 +40,7 @@ export function Wheel({
       <button
         className="center-button"
         onClick={onSpin}
-        disabled={isSpinning || isLoadingTime}
+        disabled={isSpinning || isLoadingTime || spinDisabled}
       >
         {isSpinning ? "..." : "SPINNI"}
       </button>
